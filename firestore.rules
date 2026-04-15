@@ -1,0 +1,77 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: userId (UID)
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (required)
+    //   - createdAt: timestamp (required)
+    //
+    // Collection: analyses
+    // Document ID: auto-generated
+    // Fields:
+    //   - userId: string (required)
+    //   - fileName: string (required)
+    //   - role: string (required)
+    //   - score: number (required)
+    //   - skillsFound: list (required)
+    //   - missingSkills: list (required)
+    //   - suggestions: string (required)
+    //   - recommendedRoles: list (required)
+    //   - summary: string (required)
+    //   - createdAt: timestamp (required)
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.userId;
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt']) &&
+             data.uid == request.auth.uid &&
+             data.email is string &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidAnalysis(data) {
+      return data.keys().hasAll(['userId', 'fileName', 'role', 'score', 'skillsFound', 'missingSkills', 'suggestions', 'recommendedRoles', 'summary', 'createdAt']) &&
+             data.userId == request.auth.uid &&
+             data.fileName is string && data.fileName.size() < 255 &&
+             data.role is string &&
+             data.score is number && data.score >= 0 && data.score <= 100 &&
+             data.skillsFound is list &&
+             data.missingSkills is list &&
+             data.suggestions is string && data.suggestions.size() < 10000 &&
+             data.recommendedRoles is list &&
+             data.summary is string && data.summary.size() < 2000 &&
+             data.createdAt is timestamp;
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    match /analyses/{analysisId} {
+      allow read: if isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated() && isValidAnalysis(request.resource.data);
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+  }
+}
